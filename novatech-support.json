@@ -1,0 +1,606 @@
+{
+  "name": "NovaTech Customer Support v2.3 - DEMO",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "responseMode": "lastNode"
+        }
+      },
+      "id": "03c772bc-20cf-41f7-a1d6-62e3bbb9cc66",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ],
+      "notes": "GİRİŞ: Müşterinin yazdığı mesaj buradan gelir (chatInput). Yanıt, son çalışan düğümün \"output\" alanından sohbet penceresine döner."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Müşteri mesajını al ve normalize et (Türkçe karakterlere duyarlı)\nconst raw = String($input.first().json.chatInput || \"\");\nconst message = raw.toLocaleLowerCase(\"tr-TR\").replace(/\\s+/g, \" \").trim();\nconst has = (list) => list.some((w) => message.includes(w));\n\n// Ürün adı anahtar kelimeleri (ürün detayları \"Urun Destek Cevabi\" düğümündedir)\nconst productKeys = {\n  \"Bluetooth Kulaklık\": [\"bluetooth\", \"kulaklık\", \"kulaklik\", \"kulaklığ\"],\n  \"Kablosuz Mouse\": [\"kablosuz mouse\", \"mouse\"],\n  \"Mekanik Klavye\": [\"mekanik klavye\", \"klavye\"]\n};\nconst mentioned = Object.keys(productKeys).filter((name) => productKeys[name].some((k) => message.includes(k)));\n\n// Kelime listeleri\nconst listWords = [\"ürünler\", \"urunler\", \"ürün listesi\", \"katalog\", \"stokta\", \"hangi ürün\", \"neler var\", \"mevcut\"];\nconst compareWords = [\"karşılaştır\", \"karsilastir\", \"kıyasla\", \"kiyasla\", \"hangisi\"];\nconst promoWords = [\"kampanya\", \"indirim\", \"promosyon\", \"fırsat\", \"kupon\"];\nconst hoursWords = [\"çalışma saat\", \"calisma saat\", \"mesai\", \"kaçta açıl\", \"kaçta kapan\", \"açık mı\", \"saatleri\", \"hafta sonu\", \"mağaza\"];\nconst deliveryWords = [\"teslimat\", \"teslim süresi\", \"kaç günde\", \"kac gunde\", \"ne zaman gelir\", \"kargo ücreti\", \"kargo ucreti\", \"ücretsiz kargo\"];\nconst contactWords = [\"iletişim\", \"iletisim\", \"telefon numar\", \"adres\", \"e-posta\", \"eposta\", \"mail adres\", \"nasıl ulaş\", \"nasil ulas\"];\nconst complaintWords = [\"şikayet\", \"sikayet\", \"şikâyet\", \"memnun değil\", \"memnun degil\", \"bozuk\", \"bozul\", \"çalışmıyor\", \"calismiyor\", \"çalışmadı\", \"arıza\", \"ariza\", \"sorun\", \"problem\", \"hata\", \"bağlanmıyor\", \"baglanmiyor\", \"şarj olmuyor\", \"açılmıyor\", \"acilmiyor\", \"tepki vermiyor\", \"kırık\", \"kirik\", \"gelmedi\", \"yanlış ürün\", \"teknik destek\"];\nconst strongTopic = [\"iade\", \"garanti\", \"temsilci\"].find((k) => message.includes(k));\n\n// Bütçe: sayı + bütçe ifadesi (ör. \"bütçem 1.000 TL\", \"800 lira altı\", \"1 bin\")\nlet budget = null;\nconst cleaned = message.replace(/(\\d)\\.(\\d{3})/g, \"$1$2\");\nconst numMatch = cleaned.match(/(\\d+)\\s*(bin(?![a-zçğıöşü])|k(?![a-zçğıöşü]))?/);\nconst budgetWords = [\"bütçe\", \"butce\", \"tl\", \"lira\", \"₺\", \"öner\", \"oner\", \"altında\", \"altinda\", \"altı\", \"en fazla\", \"kadar\", \"civarı\", \"param\"];\nif (numMatch && has(budgetWords)) {\n  const value = parseInt(numMatch[1], 10) * (numMatch[2] ? 1000 : 1);\n  if (value > 0) budget = value;\n}\n\n// Sipariş numarası (NT1234)\nconst orderMatch = message.match(/(^|[^a-zçğıöşü])nt[\\s-]?(\\d{4})/);\nconst orderId = orderMatch ? \"NT\" + orderMatch[2] : null;\n\n// Açık destek kaydı isteği (yalnızca açıkça talep edilirse; sıradan teknik sorular kayıt açmaz)\nconst ticketWords = [\"destek talebi oluştur\", \"destek talebi olustur\", \"destek talebi aç\", \"destek talebi ac\", \"destek kaydı oluştur\", \"destek kaydi olustur\", \"destek kaydı aç\", \"destek kaydi ac\", \"şikayet kaydı oluştur\", \"şikayet kaydı aç\", \"şikâyet kaydı oluştur\", \"şikâyet kaydı aç\", \"sikayet kaydi olustur\", \"sikayet kaydi ac\", \"arıza kaydı oluştur\", \"arıza kaydı aç\", \"ariza kaydi olustur\", \"ariza kaydi ac\", \"talep oluştur\", \"talep olustur\", \"talebi oluştur\", \"talebi olustur\", \"kayıt oluştur\", \"kayit olustur\", \"kayıt aç\", \"kayit ac\"];\n\n// Niyet seçimi (öncelik sırası yukarıdan aşağıya)\nlet intent = \"karsilama\";\nlet topic = \"karsilama\";\n// Destek kaydı durum sorgusu: NVT-00001 gibi referanstan sayısal id çıkarılır\nconst refMatch = message.match(/nvt[\\s-]*(\\d{1,9})/);\nconst ticketId = refMatch ? parseInt(refMatch[1], 10) : null;\nconst queryWords = [\"durumu\", \"durumunu\", \"sorgula\", \"sorgu\", \"ne durumda\", \"nasıl gitti\", \"ne oldu\", \"takip\"];\nconst ticketNouns = [\"talep\", \"kayıt\", \"kayit\", \"destek\", \"ticket\", \"nvt\"];\nconst isTicketQuery = !has(ticketWords) && ((ticketId !== null && !orderId) || (has(queryWords) && has(ticketNouns) && !has([\"sipariş\", \"siparis\", \"kargo\"])));\n\nif (isTicketQuery) { intent = \"destek_sorgula\"; topic = \"sorgu\"; }\nelse if (has(ticketWords)) { intent = \"destek_kaydi\"; topic = \"kayit\"; }\nelse if (orderId) { intent = \"siparis\"; topic = \"durum\"; }\nelse if (!message.includes(\"temsilci\") && has(complaintWords)) { intent = \"destek\"; topic = \"sikayet\"; }\nelse if (mentioned.length >= 2) { intent = \"urun\"; topic = \"karsilastir\"; }\nelse if (has(compareWords)) { intent = \"urun\"; topic = \"karsilastir_eksik\"; }\nelse if (budget !== null && mentioned.length === 0) { intent = \"urun\"; topic = \"butce\"; }\nelse if (mentioned.length === 0 && has(promoWords)) { intent = \"urun\"; topic = \"kampanya\"; }\nelse if (has(hoursWords)) { intent = \"destek\"; topic = \"saat\"; }\nelse if (has(deliveryWords)) { intent = \"destek\"; topic = \"teslimat\"; }\nelse if (has(contactWords)) { intent = \"destek\"; topic = \"iletisim\"; }\nelse if (strongTopic) { intent = \"destek\"; topic = strongTopic; }\nelse if (mentioned.length > 0) { intent = \"urun\"; topic = \"tekil\"; }\nelse if (has(listWords)) { intent = \"urun\"; topic = \"liste\"; }\nelse if (message.includes(\"kargo\")) { intent = \"destek\"; topic = \"kargo\"; }\nelse if (has([\"sipariş\", \"siparis\"])) { intent = \"siparis\"; topic = \"genel\"; }\nelse if (message.includes(\"fiyat\")) { intent = \"urun\"; topic = \"fiyat\"; }\n\nreturn [{ json: { chatInput: raw, message, intent, topic, orderId, budget, products: mentioned, ticketId } }];"
+      },
+      "id": "f725dde5-0622-48e5-9366-8109db996153",
+      "name": "Mesaji Analiz Et",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "notes": "ANALİZ: Mesajı küçük harfe çevirir (Türkçe kurallarıyla), niyeti bulur ve intent (urun/siparis/destek/karsilama) ile topic alanlarını üretir. Yeni konu eklemek için önce buraya kelime listesi ve bir intent ekleyin."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "urun"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Urun Destegi"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "siparis"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Siparis Destegi"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "destek"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Musteri Destegi"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "destek_kaydi"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Destek Kaydi"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "destek_sorgula"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Destek Sorgula"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Varsayilan"
+        }
+      },
+      "id": "231d1b9b-280b-4583-90b9-7aa67bd14998",
+      "name": "Talebi Yonlendir",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        -32
+      ],
+      "notes": "YÖNLENDİRME: intent alanına göre 6 çıkıştan birine gider: 0 = Ürün, 1 = Sipariş, 2 = Müşteri Destek, 3 = Destek Kaydı (oluştur), 4 = Destek Sorgula (durum), 5 = Varsayılan (karşılama). Yeni dal için yeni bir kural ekleyip yeni çıkışı bağlayın."
+    },
+    {
+      "parameters": {
+        "jsCode": "const { topic, message, budget, products } = $input.first().json;\n\n// Ürün kataloğu (sabit, kurgusal liste). discount: DEMO kampanya indirimi (%)\nconst catalog = [\n  { name: \"Bluetooth Kulaklık\", price: \"750 TL\", priceNum: 750, inStock: true, discount: 10, detail: \"Bluetooth (kablosuz) bağlantılı kulaklık\" },\n  { name: \"Kablosuz Mouse\", price: \"450 TL\", priceNum: 450, inStock: true, discount: 20, detail: \"Kablosuz bağlantılı mouse\" },\n  { name: \"Mekanik Klavye\", price: \"1.200 TL\", priceNum: 1200, inStock: false, discount: 15, detail: \"Mekanik tuşlu klavye\" }\n];\n\nconst fiyatSorusu = \"💰 Fiyat bilgisi için size yardımcı olmak isterim. Hangi ürünle ilgileniyorsunuz? (Örneğin: Bluetooth Kulaklık, Kablosuz Mouse, Mekanik Klavye)\";\n\nconst stockText = (p) => (p.inStock ? \"✅ Stokta var\" : \"❌ Şu anda stokta yok\");\nconst fmt = (n) => String(n).replace(/\\B(?=(\\d{3})+(?!\\d))/g, \".\") + \" TL\";\nconst promoPrice = (p) => Math.round(p.priceNum * (100 - p.discount) / 100);\nconst promoLine = (p) => \"🏷️ DEMO kampanya: %\" + p.discount + \" indirimle \" + fmt(promoPrice(p));\n\nconst mentioned = catalog.filter((p) => products.includes(p.name));\nconst product = mentioned[0];\n\nlet output = \"\";\nif (topic === \"karsilastir\") {\n  output = \"⚖️ Ürün karşılaştırması\\n\\n\" +\n    mentioned.map((p, i) =>\n      (i + 1) + \") \" + p.name + \"\\n   Fiyat: \" + p.price + \"\\n   Durum: \" + stockText(p) +\n      \"\\n   Bilinen özellik: \" + p.detail + \"\\n   \" + promoLine(p)\n    ).join(\"\\n\\n\") +\n    (mentioned.length === 2 ? \"\\n\\nFiyat farkı: \" + fmt(Math.abs(mentioned[0].priceNum - mentioned[1].priceNum)) + \".\" : \"\") +\n    \"\\n\\nNot: Demo kataloğumuzda bunların dışında teknik özellik bilgisi bulunmuyor.\";\n} else if (topic === \"karsilastir_eksik\") {\n  output = \"⚖️ Karşılaştırma için iki ürün adını tek mesajda yazın. Örneğin: Kablosuz Mouse ile Mekanik Klavye karşılaştır.\\n\\nÜrünlerimiz: \" +\n    catalog.map((p) => p.name).join(\", \") + \".\";\n} else if (topic === \"butce\") {\n  const affordable = catalog.filter((p) => p.priceNum <= budget);\n  const available = affordable.filter((p) => p.inStock);\n  if (available.length > 0) {\n    const unavailable = affordable.filter((p) => !p.inStock);\n    output = \"🎯 \" + fmt(budget) + \" bütçenize uygun ürünler:\\n\\n\" +\n      available.map((p) => \"• \" + p.name + \" - \" + p.price + \" - \" + stockText(p)).join(\"\\n\") +\n      (unavailable.length > 0 ? \"\\n\\nℹ️ Bütçenize uyan ama şu an stokta olmayan: \" + unavailable.map((p) => p.name).join(\", \") + \".\" : \"\") +\n      \"\\n\\nDEMO kampanyalar için 'kampanya' yazabilirsiniz.\";\n  } else {\n    const cheapest = catalog.reduce((a, b) => (a.priceNum <= b.priceNum ? a : b));\n    output = \"🙏 \" + fmt(budget) + \" bütçesine uygun bir ürün kataloğumuzda yok. En uygun fiyatlı ürünümüz: \" +\n      cheapest.name + \" (\" + cheapest.price + \").\";\n  }\n} else if (topic === \"kampanya\") {\n  output = \"🏷️ DEMO kampanyalar\\n\\n\" +\n    catalog.map((p) => \"• \" + p.name + \": \" + p.price + \" → \" + fmt(promoPrice(p)) + \" (%\" + p.discount + \" indirim) - \" + stockText(p)).join(\"\\n\") +\n    \"\\n\\n⚠️ Bu kampanyalar eğitim amaçlı kurgusal DEMO verisidir; gerçek bir indirim değildir.\";\n} else if (topic === \"tekil\" && product) {\n  output = \"🛒 \" + product.name + \"\\nFiyat: \" + product.price + \"\\nDurum: \" + stockText(product) + \"\\n\" + promoLine(product);\n  if (budget !== null && product.priceNum > budget) {\n    output += \"\\n\\nℹ️ Not: Bu ürün belirttiğiniz \" + fmt(budget) + \" bütçenin üzerinde.\";\n  }\n  if (message.includes(\"kargo\")) {\n    output += \"\\n\\n📦 Kargo bilgisi için sadece 'kargo' yazmanız yeterli.\";\n  }\n} else if (topic === \"liste\") {\n  output = \"📋 NovaTech ürün listesi:\\n\\n\" +\n    catalog.map((p) => \"• \" + p.name + \" - \" + p.price + \" - \" + stockText(p)).join(\"\\n\") +\n    \"\\n\\nBir ürünün adını yazarak fiyat ve stok bilgisini öğrenebilirsiniz.\";\n} else {\n  output = fiyatSorusu;\n}\n\nreturn [{ json: { output } }];"
+      },
+      "id": "778f39bc-7c29-4fdd-b319-c856fc86a8ae",
+      "name": "Urun Destek Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -288
+      ],
+      "notes": "ÜRÜN DALI: Sabit ürün kataloğu (fiyat, stok, DEMO indirim). Tek ürün, ürün listesi, bütçe önerisi, ürün karşılaştırma ve DEMO kampanyalar burada. Ürün eklemek için catalog listesine satır ekleyin (ve \"Mesaji Analiz Et\" içindeki productKeys listesine anahtar kelime)."
+    },
+    {
+      "parameters": {
+        "jsCode": "const { topic, orderId } = $input.first().json;\n\n// DEMO siparişler (yalnızca durum bilgisi)\nconst orders = {\n  NT1001: \"Hazırlanıyor 🛠️\",\n  NT1002: \"Kargoya verildi 🚚\",\n  NT1003: \"Teslim edildi ✅\"\n};\n\nlet output = \"\";\nif (topic === \"durum\" && orders[orderId]) {\n  output = \"📦 DEMO sipariş durumu\\n\\nSipariş: \" + orderId + \"\\nDurum: \" + orders[orderId] +\n    \"\\n\\n⚠️ Bu, eğitim amaçlı DEMO örnek verisidir. Gerçek bir sipariş sorgulanmadı.\";\n} else if (topic === \"durum\") {\n  output = \"🔎 \" + orderId + \" numaralı sipariş DEMO listesinde yok.\\n\\nDeneyebileceğiniz DEMO sipariş numaraları:\\n\" +\n    \"• NT1001 (hazırlanıyor)\\n• NT1002 (kargoya verildi)\\n• NT1003 (teslim edildi)\\n\\n\" +\n    \"⚠️ Bunlar kurgusal örneklerdir; gerçek sipariş sorgulanmaz.\";\n} else {\n  output = \"📦 Sipariş durumu için DEMO sipariş numarasını tek mesajda yazın: NT1001, NT1002 veya NT1003.\\n\\n\" +\n    \"⚠️ Bunlar kurgusal örneklerdir; gerçek sipariş sorgulanmaz. Gerçek kargo takibi adımları için 'kargo' yazabilirsiniz.\";\n}\n\nreturn [{ json: { output } }];"
+      },
+      "id": "f3b538b2-a510-4d93-b13f-761d51303045",
+      "name": "Siparis Destek Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -96
+      ],
+      "notes": "SİPARİŞ DALI: Yalnızca kurgusal DEMO siparişler (NT1001-NT1003). Gerçek sipariş sorgulanmaz. Yeni örnek sipariş için orders listesine satır ekleyin."
+    },
+    {
+      "parameters": {
+        "jsCode": "const { topic, products } = $input.first().json;\n\n// Hazır cevaplar\nconst replies = {\n  kargo: \"📦 Kargo takibi (DEMO): Bu örnek sistem gerçek kargo şirketlerine bağlı değildir. Gerçek bir alışverişte satıcının verdiği takip numarasıyla ilgili kargo firmasının resmî sitesinden gönderiyi sorgulayabilirsiniz.\",\n  iade: \"↩️ İade (DEMO): Bu uygulama gerçek iade kodu oluşturmaz veya para iadesi başlatmaz. İade koşulları işletmeye, ürüne ve yürürlükteki mevzuata göre değişebilir. Burada örnek bir destek kaydı oluşturabilirsiniz.\",\n  garanti: \"🛡️ Garanti (DEMO): Bu sistem garanti süresi veya kapsamını doğrulamaz. Gerçek bir ürün için fatura, garanti belgesi ve satıcının resmî koşullarını inceleyin. Sorununuzu kaydetmek için destek talebi oluşturabilirsiniz.\",\n  temsilci: \"👤 Talebiniz için bir insan destek temsilcisine ihtiyaç var. Bu DEMO bot bir temsilciye bildirim göndermez ve görüşme başlatmaz. Gerçek destek için işletmenin resmî iletişim kanalını kullanın.\"\n};\n\n// Ürüne özel basit sorun giderme adımları\nconst tips = {\n  \"Bluetooth Kulaklık\": \"• Kulaklığı şarj edip kapatıp yeniden açın.\\n• Telefonunuzun Bluetooth listesinden kulaklığı silip yeniden eşleştirin.\\n• Başka bir cihazla eşleştirmeyi deneyin.\",\n  \"Kablosuz Mouse\": \"• Pilini kontrol edin veya yenisiyle değiştirin.\\n• Alıcıyı başka bir USB girişine takın.\\n• Mouse'u kapatıp yeniden açın ve farklı bir yüzeyde deneyin.\",\n  \"Mekanik Klavye\": \"• Kabloyu çıkarıp başka bir USB girişine takın.\\n• Klavyeyi başka bir bilgisayarda deneyin.\\n• Tuşların arasında toz veya kir olup olmadığına bakın.\"\n};\nconst generic = \"• Cihazı kapatıp yeniden açın.\\n• Kablo, pil veya şarj bağlantısını kontrol edin.\\n• Mümkünse cihazı başka bir bilgisayar/telefonla deneyin.\";\n\nlet output = \"\";\nif (topic === \"sikayet\") {\n  const productName = products.length > 0 ? products[0] : null;\n  const steps = productName ? tips[productName] : generic;\n  output = \"😔 Yaşadığınız sorun için üzgünüz, yardımcı olmaya çalışalım.\" +\n    (productName ? \"\\n\\nÜrün: \" + productName : \"\") +\n    \"\\n\\nŞunları deneyebilirsiniz:\\n\" + steps +\n    \"\\n• Cihazda sıvı teması, kırık veya yanık kokusu varsa kullanmayı bırakın.\\n\\n\" +\n    \"Sorun devam ederse garanti bilgisi için 'garanti', insan destek temsilcisi bilgisi için 'temsilci' yazabilirsiniz.\\n\\n\" +\n    \"⚠️ Not: Bu mesaj otomatik olarak destek talebi oluşturmaz ve kimseye bildirim göndermez. Kayıt açmak isterseniz 'destek talebi oluştur' yazabilirsiniz.\";\n} else if (topic === \"saat\") {\n  output = \"🕘 DEMO mağaza saatleri\\n\\nHafta içi: 09:00 - 18:00\\nCumartesi: 10:00 - 16:00\\nPazar: Kapalı\\n\\n\" +\n    \"⚠️ NovaTech kurgusal bir demo mağazadır; bu saatler örnek amaçlıdır.\";\n} else if (topic === \"teslimat\") {\n  output = \"🚚 DEMO teslimat bilgisi\\n\\n• Tahmini teslimat: 1-3 iş günü\\n• 1.500 TL üzeri siparişlerde ücretsiz kargo\\n• 1.500 TL altı siparişlerde 49 TL kargo ücreti\\n\\n\" +\n    \"⚠️ Bunlar kurgusal demo bilgileridir, gerçek bir teslimat taahhüdü değildir. Sipariş takibi için 'kargo' yazabilirsiniz.\";\n} else if (topic === \"iletisim\") {\n  output = \"📞 DEMO iletişim bilgisi\\n\\nNovaTech kurgusal bir demo mağazadır, bu yüzden gerçek bir telefon, adres veya e-posta bilgisi yoktur.\\n\\n\" +\n    \"Örnek (gerçek değil): destek@novatech.example\\n\\nİnsan destek temsilcisi bilgisi için 'temsilci' yazabilirsiniz.\";\n} else if (replies[topic]) {\n  output = replies[topic];\n} else {\n  output = replies.kargo;\n}\n\nreturn [{ json: { output } }];"
+      },
+      "id": "f2ab6cef-d1cc-4770-bee2-43a75a7b9a20",
+      "name": "Musteri Destek Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        96
+      ],
+      "notes": "MÜŞTERİ DESTEK DALI: kargo, iade, garanti, temsilci, şikayet/teknik destek ve DEMO mağaza saatleri, teslimat, iletişim cevapları. Bir cevabı değiştirmek için ilgili metni düzenleyin. Bot destek talebi oluşturmaz ve kimseye bildirim göndermez."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Data Table'a yazılacak alanları hazırlar (müşterinin ORİJİNAL mesajı saklanır)\nconst original = String($input.first().json.chatInput || \"\").trim().slice(0, 1000);\nconst text = original.toLocaleLowerCase(\"tr-TR\");\nconst has = (list) => list.some((w) => text.includes(w));\n\n// 1) Kural listeleri (yapay zeka YOK; yalnızca anahtar kelime kuralları)\nconst safetyWords = [\"duman\", \"şiş\", \"sis pil\", \"patla\", \"yangın\", \"yangin\", \"alev\", \"kıvılcım\", \"kivilcim\", \"yanık\", \"yanik\", \"yanıyor\", \"yaniyor\", \"yandı\", \"aşırı ısın\", \"asiri isin\", \"çok ısın\", \"eridi\", \"erimiş\"];\nconst refundWords = [\"iade\", \"geri öde\", \"geri ode\", \"para iadesi\", \"ücret iadesi\", \"ucret iadesi\"];\nconst warrantyWords = [\"garanti\"];\nconst shippingWords = [\"kargo\", \"kurye\", \"teslimat\", \"gelmedi\", \"ulaşmadı\", \"ulasmadi\", \"teslim edilmedi\"];\nconst defectWords = [\"bozuk\", \"bozul\", \"çalışmıyor\", \"calismiyor\", \"çalışmadı\", \"calismadi\", \"arıza\", \"ariza\", \"açılmıyor\", \"acilmiyor\", \"şarj olmuyor\", \"sarj olmuyor\", \"bağlanmıyor\", \"baglanmiyor\", \"tepki vermiyor\", \"kırık\", \"kirik\", \"sorun\", \"problem\", \"hatalı\", \"hatali\"];\nconst deliveryFailWords = [\"gelmedi\", \"ulaşmadı\", \"ulasmadi\", \"teslim edilmedi\", \"kayıp\", \"kayip\", \"kaybol\", \"hasarlı\", \"hasarli\", \"geç kaldı\", \"gec kaldi\", \"gecikti\", \"gecikme\", \"eksik\"];\n\n// 2) Kategori (öncelik sırası: iade > garanti > kargo > teknik_destek > genel)\nconst isSafety = has(safetyWords);\nlet category = \"genel\";\nif (has(refundWords)) category = \"iade\";\nelse if (has(warrantyWords)) category = \"garanti\";\nelse if (has(shippingWords)) category = \"kargo\";\nelse if (has(defectWords) || isSafety) category = \"teknik_destek\";\n\n// 3) Öncelik\nlet priority = \"Normal\";\nif (isSafety) priority = \"Yuksek\";\nelse if (category === \"teknik_destek\" || (category === \"kargo\" && has(deliveryFailWords)) || (category === \"garanti\" && has(defectWords))) priority = \"Orta\";\n\n// 4) Konu: yalnızca mesajda GERÇEKTEN geçen ürün adı ve sipariş numarası kullanılır\nconst productLabels = [[\"Kulaklık\", [\"kulaklık\", \"kulaklik\"]], [\"Mouse\", [\"mouse\"]], [\"Klavye\", [\"klavye\"]]];\nconst found = productLabels.filter((p) => p[1].some((k) => text.includes(k))).map((p) => p[0]);\nconst orderMatch = text.match(/(^|[^a-zçğıöşü])nt[\\s-]?(\\d{4})/);\nconst baseSubjects = {\n  teknik_destek: \"ürün arızası bildirimi\",\n  iade: \"iade talebi\",\n  kargo: \"kargo sorunu bildirimi\",\n  garanti: \"garanti talebi\",\n  genel: \"genel destek talebi\"\n};\nlet base = isSafety ? \"güvenlik riski bildirimi\" : baseSubjects[category];\nlet subject = found.length > 0 ? found.join(\" / \") + \": \" + base : base.charAt(0).toLocaleUpperCase(\"tr-TR\") + base.slice(1);\nif (orderMatch) subject += \" (NT\" + orderMatch[2] + \")\";\nsubject = subject.slice(0, 80);\n\nreturn [{ json: {\n  message: original,\n  subject,\n  category,\n  priority,\n  status: \"acik\",\n  source: \"n8n_chat\"\n} }];"
+      },
+      "id": "ee8fcf9f-af00-4d24-a74b-843fe0655ec1",
+      "name": "Destek Kaydi Hazirla",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        608
+      ],
+      "notes": "KAYIT HAZIRLIK (v2.3): Orijinal mesajı JavaScript kurallarıyla analiz eder (AI yok). category (teknik_destek/iade/kargo/garanti/genel), priority (Yuksek/Orta/Normal) ve mesajda gerçekten geçen bilgilerden kısa Türkçe subject üretir. status=acik ve source=n8n_chat sabittir. Yeni kategori/öncelik kuralı için üstteki kelime listelerini düzenleyin."
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "novatech_support_tickets"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message": "={{ $json.message }}",
+            "subject": "={{ $json.subject }}",
+            "category": "={{ $json.category }}",
+            "priority": "={{ $json.priority }}",
+            "status": "={{ $json.status }}",
+            "source": "={{ $json.source }}"
+          },
+          "schema": [
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "98f2af30-8d2a-4fed-8031-de5ff3660c79",
+      "name": "Destek Kaydini Sakla",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        608
+      ],
+      "notes": "VERİ TABLOSU (v2.3): novatech_support_tickets tablosuna (Row > Insert) yeni satır ekler; artık subject ve priority sütunlarını da yazar. Başarılı olursa gerçek satır id değerini döndürür; hata olursa hata çıkışına gider. Mevcut kayıtlar değiştirilmez.",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Data Table'ın döndürdüğü GERÇEK satır id değerinden referans üretir\nconst row = $input.first().json;\nconst prep = $('Destek Kaydi Hazirla').first().json;\nconst rowId = row.id;\nconst categoryLabels = { teknik_destek: \"Teknik destek\", iade: \"İade\", kargo: \"Kargo\", garanti: \"Garanti\", genel: \"Genel\" };\nconst priorityLabels = { Yuksek: \"Yüksek\", Orta: \"Orta\", Normal: \"Normal\" };\nconst category = row.category || prep.category;\nconst priority = row.priority || prep.priority;\n\nlet output = \"\";\nif (rowId !== undefined && rowId !== null && rowId !== \"\") {\n  const ref = \"NVT-\" + String(rowId).padStart(5, \"0\");\n  output = \"✅ Destek kaydınız oluşturuldu.\\n\\nKayıt referansı: \" + ref +\n    \"\\nKonu: \" + (row.subject || prep.subject) +\n    \"\\nKategori: \" + (categoryLabels[category] || category) +\n    \"\\nÖncelik: \" + (priorityLabels[priority] || priority) +\n    \"\\nDurum: Açık\\n\\nMesajınız kayıt tablosuna kaydedildi. \" +\n    \"⚠️ Bu bir eğitim amaçlı DEMO sistemdir; kimseye otomatik bildirim gönderilmedi.\";\n} else {\n  output = \"⚠️ Kayıt işlemi tamamlandı gibi görünüyor ancak kayıt numarası alınamadı. Talebinizin kaydedildiğini doğrulayamıyoruz; lütfen tekrar deneyin.\";\n}\n\nreturn [{ json: { output } }];"
+      },
+      "id": "6cac8ac1-e844-42f4-89e8-2ed3271d0f54",
+      "name": "Destek Kaydi Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        608
+      ],
+      "notes": "BAŞARI CEVABI (v2.3): Yalnızca ekleme başarılı olduğunda çalışır. Referans = NVT- + gerçek satır id; ayrıca konu, kategori, öncelik ve durum gösterilir. Numara uydurulmaz; kimseye bildirim gönderildiği söylenmez."
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = \"⚠️ Üzgünüz, destek kaydınızı şu anda kaydedemedik. Talebiniz KAYDEDİLMEDİ ve bir kayıt numarası oluşturulmadı. Lütfen daha sonra tekrar deneyin.\";\n\nreturn [{ json: { output } }];"
+      },
+      "id": "6d6c106c-17db-4464-baab-37a85540bcd6",
+      "name": "Destek Kaydi Hata Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        608
+      ],
+      "notes": "HATA CEVABI: Data Table ekleme başarısız olursa çalışır. Kaydın saklandığı iddia edilmez ve kayıt numarası verilmez."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ticket-ref",
+              "leftValue": "={{ $json.ticketId !== null && $json.ticketId > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b47dac02-4c97-4b41-b3c2-6459a0f3e4e1",
+      "name": "Referans Var mi",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        896
+      ],
+      "notes": "REFERANS KONTROLÜ: Mesajda NVT-00001 gibi geçerli bir referans var mı? Evet → tabloda ara. Hayır → müşteriden referans iste."
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "novatech_support_tickets"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.ticketId }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "60a2bb55-4ae9-4fed-b247-6db1b1c01f3c",
+      "name": "Destek Kaydini Getir",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        800
+      ],
+      "alwaysOutputData": true,
+      "notes": "VERİ TABLOSU SORGUSU: novatech_support_tickets tablosunda GERÇEK satır id değeriyle arama yapar (Row > Get). Kayıt yoksa boş sonuç döner; sorgu hata verirse hata çıkışına gider.",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Yalnızca referans, durum ve kategori gösterilir (mesaj içeriği ve kişisel veri gösterilmez)\nconst row = $input.first().json;\nconst asked = $('Mesaji Analiz Et').first().json.ticketId;\nconst statusLabels = { acik: \"Açık\", kapali: \"Kapalı\", islemde: \"İşlemde\" };\nconst categoryLabels = { teknik_destek: \"Teknik destek\", iade: \"İade\", kargo: \"Kargo\", garanti: \"Garanti\", genel: \"Genel\" };\nconst priorityLabels = { Yuksek: \"Yüksek\", Orta: \"Orta\", Normal: \"Normal\" };\n\nlet output = \"\";\nif (row && row.id !== undefined && row.id !== null) {\n  const ref = \"NVT-\" + String(row.id).padStart(5, \"0\");\n  output = \"🔎 Destek kaydı bulundu\\n\\nReferans: \" + ref +\n    \"\\nKonu: \" + (row.subject || \"Belirtilmemiş\") +\n    \"\\nDurum: \" + (statusLabels[row.status] || row.status || \"Bilinmiyor\") +\n    \"\\nKategori: \" + (categoryLabels[row.category] || row.category || \"Bilinmiyor\") +\n    \"\\nÖncelik: \" + (priorityLabels[row.priority] || row.priority || \"Belirtilmemiş\") +\n    \"\\n\\n⚠️ Bu bir eğitim amaçlı DEMO sistemdir. Gerçek kullanımda destek kaydı sorgulama için müşteri kimlik doğrulaması zorunlu olacaktır.\";\n} else {\n  output = \"❌ NVT-\" + String(asked).padStart(5, \"0\") + \" referanslı bir destek kaydı bulunamadı. Lütfen referans numarasını kontrol edip tekrar deneyin.\";\n}\n\nreturn [{ json: { output } }];"
+      },
+      "id": "f5ed5e4c-18a7-4607-94ed-43168212b6df",
+      "name": "Destek Sorgu Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        800
+      ],
+      "notes": "SORGU CEVABI (v2.3): Kayıt varsa referans, konu, durum, kategori ve öncelik gösterir; yoksa \"bulunamadı\" der. Mesaj içeriğini göstermez. Konu/öncelik yalnızca bu özel eğitim demosunda gösterilir; üretimde sorgu için müşteri kimlik doğrulaması gerekir."
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = \"⚠️ Üzgünüz, destek kaydı şu anda sorgulanamadı. Kaydın durumunu kontrol edemedik; lütfen daha sonra tekrar deneyin.\";\n\nreturn [{ json: { output } }];"
+      },
+      "id": "9f90a6a6-d78b-4438-bd50-9d205e0bbfc7",
+      "name": "Destek Sorgu Hata Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        800
+      ],
+      "notes": "SORGU HATA CEVABI: Data Table sorgusu hata verirse çalışır. Kaydın kontrol edildiği veya bulunduğu/bulunamadığı iddia edilmez."
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = \"🔢 Destek kaydınızın durumunu sorgulamak için lütfen referans numaranızı yazın. Örneğin: NVT-00001 talebimin durumu nedir?\";\n\nreturn [{ json: { output } }];"
+      },
+      "id": "1853bc6c-53be-402c-b3c4-2d503fca9d8a",
+      "name": "Referans Iste Cevabi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        992
+      ],
+      "notes": "REFERANS İSTE: Mesajda destek referansı yoksa müşteriden NVT-00001 biçiminde referans ister. Tabloya sorgu yapılmaz."
+    },
+    {
+      "parameters": {
+        "jsCode": "const welcome = \"👋 NovaTech müşteri destek hattına hoş geldiniz! Size şu konularda yardımcı olabilirim:\\n\\n\" +\n  \"• kargo - Sipariş takibi\\n\" +\n  \"• iade - İade süreci\\n\" +\n  \"• garanti - Garanti bilgisi\\n\" +\n  \"• fiyat - Ürün fiyatları\\n\" +\n  \"• temsilci - Canlı destek temsilcisi\\n\\n\" +\n  \"Ayrıca şunları da deneyebilirsiniz:\\n\" +\n  \"• ürünler - Ürün listesi ve stok durumu\\n\" +\n  \"• bütçem 1000 TL - Bütçeye uygun öneri\\n\" +\n  \"• Kablosuz Mouse ile Mekanik Klavye karşılaştır\\n\" +\n  \"• NT1001 - DEMO sipariş durumu\\n\" +\n  \"• kampanya - DEMO kampanyalar\\n\" +\n  \"• çalışma saatleri, teslimat, iletişim\\n\" +\n  \"• Bluetooth kulaklığım çalışmıyor - teknik destek\\n\" +\n  \"• destek talebi oluştur - Mesajınızı destek kaydı olarak saklar\\n\" +\n  \"• NVT-00001 talebimin durumu - Destek kaydı durumu\\n\\n\" +\n  \"Lütfen bu konulardan birini yazın.\";\n\nreturn [{ json: { output: welcome } }];"
+      },
+      "id": "bda59287-f4b2-44f6-bf76-97f58157759b",
+      "name": "Karsilama Mesaji",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        288
+      ],
+      "notes": "VARSAYILAN DAL: Hiçbir konuya uymayan mesajlarda karşılama metnini ve desteklenen komutları gösterir. Yeni bir dal eklediğinizde komutu buradaki listeye de yazın."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Mesaji Analiz Et",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesaji Analiz Et": {
+      "main": [
+        [
+          {
+            "node": "Talebi Yonlendir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Talebi Yonlendir": {
+      "main": [
+        [
+          {
+            "node": "Urun Destek Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Siparis Destek Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Musteri Destek Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Destek Kaydi Hazirla",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Referans Var mi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Karsilama Mesaji",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Destek Kaydi Hazirla": {
+      "main": [
+        [
+          {
+            "node": "Destek Kaydini Sakla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Destek Kaydini Sakla": {
+      "main": [
+        [
+          {
+            "node": "Destek Kaydi Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Destek Kaydi Hata Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Referans Var mi": {
+      "main": [
+        [
+          {
+            "node": "Destek Kaydini Getir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Referans Iste Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Destek Kaydini Getir": {
+      "main": [
+        [
+          {
+            "node": "Destek Sorgu Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Destek Sorgu Hata Cevabi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}
