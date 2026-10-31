@@ -1,0 +1,70 @@
+1. Karşılama ve genel sorular
+No.	Botuna yazacağın mesaj
+1	Merhaba
+2	Selam, nasıl yardımcı olabilirsiniz?
+3	Hangi konularda yardımcı olabilirsiniz?
+4	Fiyat bilgisi almak istiyorum
+
+2. Ürün ve stok sorgulama
+No.	Botuna yazacağın mesaj
+5	Hangi ürünleriniz var?
+6	Bluetooth kulaklık fiyatı ne kadar?
+7	Kablosuz Mouse stokta var mı?
+8	Mekanik Klavye fiyatı nedir?
+9	Mekanik Klavye stokta var mı?
+10	Kulaklık ve Mouse fiyatlarını karşılaştır
+11	Kablosuz Mouse ile Mekanik Klavye karşılaştır
+12	İndirimde hangi ürünler var?
+13	Kampanyalarınızı gösterebilir misiniz?
+
+3. Bütçeye göre ürün önerisi
+No.	Botuna yazacağın mesaj
+14	500 TL bütçem var, ne önerirsin?
+15	800 TL bütçem var, hangi ürünleri alabilirim?
+16	1500 TL bütçem var, ne alabilirim?
+17	300 TL bütçem var, ürün önerir misin?
+
+4. Sipariş ve kargo takibi
+No.	Botuna yazacağın mesaj
+18	Siparişimin durumunu öğrenmek istiyorum
+19	NT1001 numaralı siparişim nerede?
+20	NT1002 numaralı siparişimin durumu nedir?
+21	NT1003 numaralı siparişim teslim edildi mi?
+22	NT9999 numaralı siparişimi sorgula
+23	Kargo takibini nasıl yapabilirim?
+24	Kargo ücreti ne kadar?
+25	Ürünler kaç günde teslim ediliyor?
+
+NT1001, NT1002 ve NT1003 kurgusal demo siparişleridir.
+5. İade, garanti ve teknik destek
+No.	Botuna yazacağın mesaj
+26	Aldığım ürünü iade etmek istiyorum
+27	Garanti süresi ne kadar?
+28	Bluetooth kulaklığım bağlanmıyor
+29	Kablosuz Mouse çalışmıyor
+30	Mekanik Klavyem çalışmıyor
+31	Bilgisayarım açılmıyor
+32	Müşteri temsilcisine bağlanmak istiyorum
+
+6. Destek talebi oluşturma — En önemli bölüm
+Bu mesajlarda botun Data Table'a yeni bir kayıt oluşturması gerekiyor.
+No.	Botuna yazacağın mesaj
+33	Aldığım Bluetooth kulaklık bozuk çıktı. Destek talebi oluşturmak istiyorum.
+34	Kargom gelmedi. Şikâyet kaydı açmak istiyorum.
+35	Mouse ürünüm için garanti destek talebi oluşturmak istiyorum.
+36	Ürünümün pilinde şişme var. Acil destek talebi oluşturmak istiyorum.
+37	Ürünümü iade etmek istiyorum. İade talebi oluştur.
+
+7. Destek talebi sorgulama
+No.	Botuna yazacağın mesaj
+38	NVT-00001 numaralı destek talebimin durumu nedir?
+39	NVT-99999 numaralı destek talebimi sorgula
+40	Destek talebimin durumu nedir?
+
+İlk sorguda kayıt varsa durum gösterilir, ikincisinde bulunamadı yanıtı beklenir. Üçüncüde bot referans numarası istemelidir. Yeni oluşturduğun kayıtların numaraları farklı olabilir.
+8. Mağaza ve iletişim bilgileri
+No.	Botuna yazacağın mesaj
+41	Çalışma saatleriniz nedir?
+42	Hafta sonu açık mısınız?
+43	İletişim bilgileriniz nelerdir?
+44	Teslimat şartlarınız nelerdir?
